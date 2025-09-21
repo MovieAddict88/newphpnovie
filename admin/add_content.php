@@ -29,7 +29,35 @@ if (isset($_GET['id']) && is_numeric($_GET['id'])) { // Edit Mode
     $result = $stmt->get_result();
     $content = array_merge($content, $result->fetch_assoc());
     $content['id'] = $id;
-    // In a full app, you'd also fetch and populate genres, servers, seasons etc. here for editing.
+    // Fetch associated data
+    $cat_res = $conn->query("SELECT name FROM categories WHERE id = " . $content['category_id']);
+    $category_name = $cat_res->fetch_assoc()['name'];
+
+    if ($category_name === 'Movies' || $category_name === 'Live TV') {
+        $server_res = $conn->query("SELECT * FROM servers WHERE parent_id = $id AND parent_type = 'content'");
+        while ($row = $server_res->fetch_assoc()) {
+            $content['servers'][] = $row;
+        }
+    } elseif ($category_name === 'TV Series') {
+        $season_res = $conn->query("SELECT * FROM seasons WHERE content_id = $id ORDER BY season_number ASC");
+        while ($season = $season_res->fetch_assoc()) {
+            $season_id = $season['id'];
+            $episodes = [];
+            $episode_res = $conn->query("SELECT * FROM episodes WHERE season_id = $season_id ORDER BY episode_number ASC");
+            while ($episode = $episode_res->fetch_assoc()) {
+                $episode_id = $episode['id'];
+                $servers = [];
+                $server_res = $conn->query("SELECT * FROM servers WHERE parent_id = $episode_id AND parent_type = 'episode'");
+                 while ($server = $server_res->fetch_assoc()) {
+                    $servers[] = $server;
+                }
+                $episode['servers'] = $servers;
+                $episodes[] = $episode;
+            }
+            $season['episodes'] = $episodes;
+            $content['seasons'][] = $season;
+        }
+    }
 
 } elseif (isset($_GET['tmdb_id']) && is_numeric($_GET['tmdb_id'])) { // Import Mode
     require_once 'tmdb_api.php';
@@ -124,16 +152,39 @@ if (isset($_GET['id']) && is_numeric($_GET['id'])) { // Edit Mode
                     <input type="text" id="rating" name="rating" value="<?= htmlspecialchars($content['rating']) ?>">
                 </div>
 
-                <!-- Simplified server management for now -->
-                <div id="servers-container">
+                <!-- Server management for Movies/LiveTV -->
+                <div id="servers-container" style="display:none;">
                     <h3>Servers</h3>
-                    <div class="form-group">
-                       <label>Server Name</label><input type="text" name="servers[0][name]" placeholder="e.g., VidSrc 1080p">
-                       <label>Server URL</label><input type="url" name="servers[0][url]" placeholder="https://...">
-                       <label>License URL (for DRM)</label><input type="text" name="servers[0][license_url]" placeholder="Optional">
-                       <label><input type="checkbox" name="servers[0][is_drm]" value="1"> Is DRM?</label>
+                    <div id="movie-servers-list">
+                        <?php if (!empty($content['servers'])): ?>
+                            <?php foreach ($content['servers'] as $server_index => $server): ?>
+                                <div class="server-item" id="server-<?= $server_index ?>">
+                                    <h6>Server
+                                        <button type="button" class="btn-remove" onclick="document.getElementById('server-<?= $server_index ?>').remove()">X</button>
+                                    </h6>
+                                    <div class="form-group">
+                                        <label>Name</label><input type="text" name="servers[<?= $server_index ?>][name]" value="<?= htmlspecialchars($server['name']) ?>">
+                                        <label>URL</label><input type="url" name="servers[<?= $server_index ?>][url]" value="<?= htmlspecialchars($server['url']) ?>">
+                                        <label>License URL</label><input type="text" name="servers[<?= $server_index ?>][license_url]" value="<?= htmlspecialchars($server['license_url'] ?? '') ?>">
+                                        <label><input type="checkbox" name="servers[<?= $server_index ?>][is_drm]" value="1" <?= !empty($server['is_drm']) ? 'checked' : '' ?>> Is DRM?</label>
+                                    </div>
+                                </div>
+                            <?php endforeach; ?>
+                        <?php else: // Provide a blank one for new entries ?>
+                            <div class="server-item" id="server-0">
+                                <h6>Server
+                                    <button type="button" class="btn-remove" onclick="document.getElementById('server-0').remove()">X</button>
+                                </h6>
+                                <div class="form-group">
+                                    <label>Name</label><input type="text" name="servers[0][name]">
+                                    <label>URL</label><input type="url" name="servers[0][url]">
+                                    <label>License URL</label><input type="text" name="servers[0][license_url]">
+                                    <label><input type="checkbox" name="servers[0][is_drm]" value="1"> Is DRM?</label>
+                                </div>
+                            </div>
+                        <?php endif; ?>
                     </div>
-                     <!-- A 'add more' button would be here, managed by JS -->
+                    <button type="button" id="add-movie-server-btn" class="btn">+ Add Server</button>
                 </div>
 
                 <!-- Full season/episode management for TV Series -->
@@ -142,54 +193,156 @@ if (isset($_GET['id']) && is_numeric($_GET['id'])) { // Edit Mode
                     <div id="seasons-container">
                     <?php if (!empty($content['seasons'])): ?>
                         <?php foreach ($content['seasons'] as $season_index => $season): ?>
-                            <div class="season-block" style="background: #f9f9f9; border: 1px solid #ddd; padding: 15px; margin-bottom: 15px; border-radius: 5px;">
-                                <h4>Season <?= htmlspecialchars($season['season_number']) ?></h4>
+                            <div class="season-block" id="season-<?= $season_index ?>">
+                                <h4>Season <?= htmlspecialchars($season['season_number']) ?>
+                                    <button type="button" class="btn-remove" onclick="document.getElementById('season-<?= $season_index ?>').remove()">X</button>
+                                </h4>
                                 <input type="hidden" name="seasons[<?= $season_index ?>][season_number]" value="<?= htmlspecialchars($season['season_number']) ?>">
                                 <input type="hidden" name="seasons[<?= $season_index ?>][poster]" value="<?= htmlspecialchars($season['poster']) ?>">
 
                                 <div class="episodes-container">
-                                    <?php foreach ($season['episodes'] as $episode_index => $episode): ?>
-                                        <div class="episode-block" style="border-left: 3px solid #ccc; padding-left: 15px; margin-top: 15px;">
-                                            <h5>Ep <?= htmlspecialchars($episode['episode_number']) ?>: <?= htmlspecialchars($episode['title']) ?></h5>
+                                    <?php if(!empty($season['episodes'])) foreach ($season['episodes'] as $episode_index => $episode): ?>
+                                        <div class="episode-block" id="season-<?= $season_index ?>-episode-<?= $episode_index ?>">
+                                            <h5>Ep <?= htmlspecialchars($episode['episode_number']) ?>: <?= htmlspecialchars($episode['title']) ?>
+                                                <button type="button" class="btn-remove" onclick="document.getElementById('season-<?= $season_index ?>-episode-<?= $episode_index ?>').remove()">X</button>
+                                            </h5>
                                             <input type="hidden" name="seasons[<?= $season_index ?>][episodes][<?= $episode_index ?>][episode_number]" value="<?= htmlspecialchars($episode['episode_number']) ?>">
                                             <input type="hidden" name="seasons[<?= $season_index ?>][episodes][<?= $episode_index ?>][title]" value="<?= htmlspecialchars($episode['title']) ?>">
                                             <input type="hidden" name="seasons[<?= $season_index ?>][episodes][<?= $episode_index ?>][description]" value="<?= htmlspecialchars($episode['description']) ?>">
                                             <input type="hidden" name="seasons[<?= $season_index ?>][episodes][<?= $episode_index ?>][thumbnail]" value="<?= htmlspecialchars($episode['thumbnail']) ?>">
 
-                                            <div class="servers-container-episode" style="padding-left: 20px; margin-top: 10px; background: #fff; padding:10px; border-radius:4px;">
-                                                <h6>Servers for this episode (add URLs manually)</h6>
-                                                <div class="form-group">
-                                                    <label>Server 1 Name</label><input type="text" name="seasons[<?= $season_index ?>][episodes][<?= $episode_index ?>][servers][0][name]" placeholder="e.g., VidSrc 1080p">
-                                                    <label>Server 1 URL</label><input type="url" name="seasons[<?= $season_index ?>][episodes][<?= $episode_index ?>][servers][0][url]" placeholder="https://...">
+                                            <div class="servers-container-episode">
+                                                <h6>Servers for this episode</h6>
+                                                <?php if(!empty($episode['servers'])) foreach($episode['servers'] as $server_index => $server): ?>
+                                                <div class="server-item" id="season-<?= $season_index ?>-episode-<?= $episode_index ?>-server-<?= $server_index ?>">
+                                                    <h6>Server
+                                                       <button type="button" class="btn-remove" onclick="document.getElementById('season-<?= $season_index ?>-episode-<?= $episode_index ?>-server-<?= $server_index ?>').remove()">X</button>
+                                                    </h6>
+                                                    <div class="form-group">
+                                                        <label>Name</label><input type="text" name="seasons[<?= $season_index ?>][episodes][<?= $episode_index ?>][servers][<?= $server_index ?>][name]" value="<?= htmlspecialchars($server['name']) ?>" >
+                                                        <label>URL</label><input type="url" name="seasons[<?= $season_index ?>][episodes][<?= $episode_index ?>][servers][<?= $server_index ?>][url]" value="<?= htmlspecialchars($server['url']) ?>">
+                                                    </div>
                                                 </div>
-                                                 <div class="form-group">
-                                                    <label>Server 2 Name</label><input type="text" name="seasons[<?= $season_index ?>][episodes][<?= $episode_index ?>][servers][1][name]" placeholder="e.g., Backup Server">
-                                                    <label>Server 2 URL</label><input type="url" name="seasons[<?= $season_index ?>][episodes][<?= $episode_index ?>][servers][1][url]" placeholder="https://...">
-                                                </div>
+                                                <?php endforeach; ?>
                                             </div>
+                                             <button type="button" class="btn btn-secondary add-server-btn-episode" data-season-index="<?= $season_index ?>" data-episode-index="<?= $episode_index ?>">+ Add Server</button>
                                         </div>
                                     <?php endforeach; ?>
                                 </div>
+                                <button type="button" class="btn btn-secondary add-episode-btn" data-season-index="<?= $season_index ?>">+ Add Episode</button>
                             </div>
                         <?php endforeach; ?>
                     <?php endif; ?>
                     </div>
+                    <button type="button" id="add-season-btn" class="btn">+ Add Season</button>
                 </div>
 
                 <button type="submit" class="btn"><?= $is_edit_mode ? 'Update' : 'Save' ?> Content</button>
+                <a href="manage_content.php" class="btn btn-secondary" style="margin-left: 10px;">Go Back</a>
             </form>
         </div>
     </div>
 </div>
 <script>
-    // JS to show/hide TV Series fields based on category selection
-    document.getElementById('category_id').addEventListener('change', function() {
-        // In the DB, 'TV Series' usually gets id 3 after 'Live TV' and 'Movies'
-        const isTVSeries = this.options[this.selectedIndex].text.trim() === 'TV Series';
-        document.getElementById('tv-series-fields').style.display = isTVSeries ? 'block' : 'none';
+document.addEventListener('DOMContentLoaded', function() {
+    const categorySelect = document.getElementById('category_id');
+    const tvSeriesFields = document.getElementById('tv-series-fields');
+    const serversContainer = document.getElementById('servers-container');
+
+    function toggleFields() {
+        const selectedCategoryText = categorySelect.options[categorySelect.selectedIndex].text.trim();
+        if (selectedCategoryText === 'TV Series') {
+            tvSeriesFields.style.display = 'block';
+            serversContainer.style.display = 'none';
+        } else if (selectedCategoryText === 'Movies' || selectedCategoryText === 'Live TV') {
+            tvSeriesFields.style.display = 'none';
+            serversContainer.style.display = 'block';
+        } else {
+            tvSeriesFields.style.display = 'none';
+            serversContainer.style.display = 'none';
+        }
+    }
+
+    categorySelect.addEventListener('change', toggleFields);
+    toggleFields(); // Initial check
+
+    // --- Dynamic Movie/LiveTV Servers ---
+    const movieServersList = document.getElementById('movie-servers-list');
+    let movieServerCounter = movieServersList.querySelectorAll('.server-item').length;
+    document.getElementById('add-movie-server-btn').addEventListener('click', function() {
+        const serverId = `server-${movieServerCounter}`;
+        const serverHtml = `
+            <div class="server-item" id="${serverId}">
+                <h6>New Server <button type="button" class="btn-remove" onclick="document.getElementById('${serverId}').remove()">X</button></h6>
+                <div class="form-group">
+                    <label>Name</label><input type="text" name="servers[${movieServerCounter}][name]" required>
+                    <label>URL</label><input type="url" name="servers[${movieServerCounter}][url]" required>
+                    <label>License URL</label><input type="text" name="servers[${movieServerCounter}][license_url]">
+                    <label><input type="checkbox" name="servers[${movieServerCounter}][is_drm]" value="1"> Is DRM?</label>
+                </div>
+            </div>`;
+        movieServersList.insertAdjacentHTML('beforeend', serverHtml);
+        movieServerCounter++;
     });
-    // Trigger change on load for edit mode
-    document.getElementById('category_id').dispatchEvent(new Event('change'));
+
+
+    // --- Dynamic Seasons and Episodes ---
+    const seasonsContainer = document.getElementById('seasons-container');
+    let seasonCounter = seasonsContainer.querySelectorAll('.season-block').length;
+
+    document.getElementById('add-season-btn').addEventListener('click', function() {
+        const seasonId = `new-season-${seasonCounter}`;
+        const seasonHtml = `
+            <div class="season-block" id="${seasonId}">
+                <h4>New Season <button type="button" class="btn-remove" onclick="document.getElementById('${seasonId}').remove()">X</button></h4>
+                <div class="form-group">
+                    <label>Season Number</label>
+                    <input type="number" name="seasons[${seasonCounter}][season_number]" required>
+                </div>
+                <div class="episodes-container"></div>
+                <button type="button" class="btn btn-secondary add-episode-btn" data-season-index="${seasonCounter}">+ Add Episode</button>
+            </div>`;
+        seasonsContainer.insertAdjacentHTML('beforeend', seasonHtml);
+        seasonCounter++;
+    });
+
+    seasonsContainer.addEventListener('click', function(e) {
+        if (e.target && e.target.classList.contains('add-episode-btn')) {
+            const btn = e.target;
+            const seasonIndex = btn.dataset.seasonIndex;
+            const episodesContainer = btn.previousElementSibling;
+            let episodeCounter = episodesContainer.querySelectorAll('.episode-block').length;
+            const episodeId = `s${seasonIndex}-ep${episodeCounter}`;
+
+            const episodeHtml = `
+                <div class="episode-block" id="${episodeId}">
+                    <h5>New Episode <button type="button" class="btn-remove" onclick="document.getElementById('${episodeId}').remove()">X</button></h5>
+                    <div class="form-group"><label>Episode Number</label><input type="number" name="seasons[${seasonIndex}][episodes][${episodeCounter}][episode_number]" required></div>
+                    <div class="form-group"><label>Episode Title</label><input type="text" name="seasons[${seasonIndex}][episodes][${episodeCounter}][title]" required></div>
+                    <div class="servers-container-episode"></div>
+                    <button type="button" class="btn btn-secondary add-server-btn-episode" data-season-index="${seasonIndex}" data-episode-index="${episodeCounter}">+ Add Server</button>
+                </div>`;
+            episodesContainer.insertAdjacentHTML('beforeend', episodeHtml);
+        }
+
+        if (e.target && e.target.classList.contains('add-server-btn-episode')) {
+            const btn = e.target;
+            const seasonIndex = btn.dataset.seasonIndex;
+            const episodeIndex = btn.dataset.episodeIndex;
+            const serverContainer = btn.previousElementSibling;
+            let serverCounter = serverContainer.querySelectorAll('.server-item').length;
+            const serverId = `s${seasonIndex}-ep${episodeIndex}-sv${serverCounter}`;
+
+            const serverHtml = `
+                <div class="server-item" id="${serverId}">
+                    <h6>New Server <button type="button" class="btn-remove" onclick="document.getElementById('${serverId}').remove()">X</button></h6>
+                    <div class="form-group"><label>Name</label><input type="text" name="seasons[${seasonIndex}][episodes][${episodeIndex}][servers][${serverCounter}][name]" required></div>
+                    <div class="form-group"><label>URL</label><input type="url" name="seasons[${seasonIndex}][episodes][${episodeIndex}][servers][${serverCounter}][url]" required></div>
+                </div>`;
+            serverContainer.insertAdjacentHTML('beforeend', serverHtml);
+        }
+    });
+});
 </script>
 </body>
 </html>

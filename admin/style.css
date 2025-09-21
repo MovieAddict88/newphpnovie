@@ -266,3 +266,80 @@ body {
     text-align: center;
     margin-top: 15px;
 }
+
+/* --- Page Header --- */
+.page-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 25px;
+}
+
+.page-header h1 {
+    margin: 0;
+}
+
+.header-actions {
+    display: flex;
+    gap: 15px;
+}
+
+.search-form {
+    display: flex;
+}
+
+.search-form input {
+    width: 250px;
+    padding: 10px 15px;
+    border: 1px solid var(--border-color);
+    border-radius: 6px 0 0 6px;
+    background-color: #fff;
+}
+.search-form input:focus {
+    outline: none;
+    border-color: var(--primary-color);
+    box-shadow: 0 0 0 2px #fdeeee;
+}
+
+.search-form button {
+    border-radius: 0 6px 6px 0;
+    padding: 10px 20px;
+}
+
+/* --- Dynamic Form Styles --- */
+.season-block, .episode-block, .server-item {
+    background: #fdfdfd;
+    border: 1px solid var(--border-color);
+    padding: 15px;
+    margin-bottom: 15px;
+    border-radius: 6px;
+}
+.episode-block {
+    border-left: 3px solid var(--primary-color);
+    margin-top: 15px;
+}
+.server-item {
+    margin-top: 10px;
+    padding: 10px;
+}
+.season-block h4, .episode-block h5, .server-item h6 {
+    margin-top: 0;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+.btn-remove {
+    background: #ef4444;
+    color: white;
+    border: none;
+    border-radius: 50%;
+    width: 24px;
+    height: 24px;
+    cursor: pointer;
+    font-weight: bold;
+    line-height: 24px;
+    text-align: center;
+}
+.btn-remove:hover {
+    background: #dc2626;
+}
