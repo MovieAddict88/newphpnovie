@@ -136,10 +136,44 @@ if (isset($_GET['id']) && is_numeric($_GET['id'])) { // Edit Mode
                      <!-- A 'add more' button would be here, managed by JS -->
                 </div>
 
-                <!-- Simplified season/episode management for TV Series (would be JS-driven) -->
-                <div id="tv-series-fields" style="<?= ($content['category_id'] == 3) ? 'display:block;' : 'display:none;' ?>">
+                <!-- Full season/episode management for TV Series -->
+                <div id="tv-series-fields" style="display:none;">
                     <h3>Seasons & Episodes</h3>
-                    <p><i>Season and episode management would appear here. Due to complexity, this is a placeholder. Submitting a TV Series will require manual database entry for seasons/episodes for now.</i></p>
+                    <div id="seasons-container">
+                    <?php if (!empty($content['seasons'])): ?>
+                        <?php foreach ($content['seasons'] as $season_index => $season): ?>
+                            <div class="season-block" style="background: #f9f9f9; border: 1px solid #ddd; padding: 15px; margin-bottom: 15px; border-radius: 5px;">
+                                <h4>Season <?= htmlspecialchars($season['season_number']) ?></h4>
+                                <input type="hidden" name="seasons[<?= $season_index ?>][season_number]" value="<?= htmlspecialchars($season['season_number']) ?>">
+                                <input type="hidden" name="seasons[<?= $season_index ?>][poster]" value="<?= htmlspecialchars($season['poster']) ?>">
+
+                                <div class="episodes-container">
+                                    <?php foreach ($season['episodes'] as $episode_index => $episode): ?>
+                                        <div class="episode-block" style="border-left: 3px solid #ccc; padding-left: 15px; margin-top: 15px;">
+                                            <h5>Ep <?= htmlspecialchars($episode['episode_number']) ?>: <?= htmlspecialchars($episode['title']) ?></h5>
+                                            <input type="hidden" name="seasons[<?= $season_index ?>][episodes][<?= $episode_index ?>][episode_number]" value="<?= htmlspecialchars($episode['episode_number']) ?>">
+                                            <input type="hidden" name="seasons[<?= $season_index ?>][episodes][<?= $episode_index ?>][title]" value="<?= htmlspecialchars($episode['title']) ?>">
+                                            <input type="hidden" name="seasons[<?= $season_index ?>][episodes][<?= $episode_index ?>][description]" value="<?= htmlspecialchars($episode['description']) ?>">
+                                            <input type="hidden" name="seasons[<?= $season_index ?>][episodes][<?= $episode_index ?>][thumbnail]" value="<?= htmlspecialchars($episode['thumbnail']) ?>">
+
+                                            <div class="servers-container-episode" style="padding-left: 20px; margin-top: 10px; background: #fff; padding:10px; border-radius:4px;">
+                                                <h6>Servers for this episode (add URLs manually)</h6>
+                                                <div class="form-group">
+                                                    <label>Server 1 Name</label><input type="text" name="seasons[<?= $season_index ?>][episodes][<?= $episode_index ?>][servers][0][name]" placeholder="e.g., VidSrc 1080p">
+                                                    <label>Server 1 URL</label><input type="url" name="seasons[<?= $season_index ?>][episodes][<?= $episode_index ?>][servers][0][url]" placeholder="https://...">
+                                                </div>
+                                                 <div class="form-group">
+                                                    <label>Server 2 Name</label><input type="text" name="seasons[<?= $season_index ?>][episodes][<?= $episode_index ?>][servers][1][name]" placeholder="e.g., Backup Server">
+                                                    <label>Server 2 URL</label><input type="url" name="seasons[<?= $season_index ?>][episodes][<?= $episode_index ?>][servers][1][url]" placeholder="https://...">
+                                                </div>
+                                            </div>
+                                        </div>
+                                    <?php endforeach; ?>
+                                </div>
+                            </div>
+                        <?php endforeach; ?>
+                    <?php endif; ?>
+                    </div>
                 </div>
 
                 <button type="submit" class="btn"><?= $is_edit_mode ? 'Update' : 'Save' ?> Content</button>
