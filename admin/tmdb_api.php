@@ -28,6 +28,62 @@ class TMDB_API {
         return $data ? $data['results'] : [];
     }
 
+    public function discover_content($type = 'movie', $year = null, $region_key = 'hollywood') {
+        $params = [
+            'api_key' => $this->api_key_primary,
+            'sort_by' => 'popularity.desc',
+            'page' => 1
+        ];
+
+        if ($year) {
+            $params[$type === 'movie' ? 'primary_release_year' : 'first_air_date_year'] = $year;
+        }
+
+        switch ($region_key) {
+            case 'hollywood':
+                $params['with_origin_country'] = 'US';
+                break;
+            case 'k-drama':
+                $params['with_origin_country'] = 'KR';
+                $params['with_genres'] = '18'; // Drama
+                break;
+            case 'c-drama':
+                $params['with_origin_country'] = 'CN';
+                $params['with_genres'] = '18'; // Drama
+                break;
+            case 'japanese':
+                $params['with_origin_country'] = 'JP';
+                break;
+            case 'pinoy':
+                $params['with_origin_country'] = 'PH';
+                break;
+            case 'thai':
+                $params['with_origin_country'] = 'TH';
+                break;
+            case 'indian':
+                $params['with_origin_country'] = 'IN';
+                break;
+            case 'turkey':
+                $params['with_origin_country'] = 'TR';
+                break;
+            case 'korean-variety':
+                $params['with_origin_country'] = 'KR';
+                $params['with_genres'] = '99'; // Reality
+                break;
+            case 'anime':
+                $params['with_origin_country'] = 'JP';
+                $params['with_genres'] = '16'; // Animation
+                break;
+            case 'cartoon-family':
+                $params['with_genres'] = '16,10751'; // Animation, Family
+                break;
+        }
+
+        $url = $this->api_base_url . "discover/{$type}?" . http_build_query($params);
+        $data = $this->do_curl($url);
+        return $data ? $data['results'] : [];
+    }
+
     public function get_movie_details($tmdb_id) {
         $url = $this->api_base_url . "movie/{$tmdb_id}?api_key=" . $this->api_key_primary;
         $details = $this->do_curl($url);

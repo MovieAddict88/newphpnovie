@@ -18,6 +18,22 @@ $is_edit_mode = false;
 $categories_result = $conn->query("SELECT * FROM categories ORDER BY name");
 $genres_result = $conn->query("SELECT * FROM genres ORDER BY name");
 
+// --- Pre-load server templates from data.json ---
+$movie_servers_template = [];
+$tv_servers_template = [];
+$json_data = json_decode(file_get_contents('../data.json'), true);
+foreach ($json_data['Categories'] as $category) {
+    if ($category['MainCategory'] === 'Movies' && !empty($category['Entries'][0]['Servers'])) {
+        $movie_servers_template = $category['Entries'][0]['Servers'];
+    }
+    if ($category['MainCategory'] === 'TV Series' && !empty($category['Entries'][0]['Seasons'][0]['Episodes'][0]['Servers'])) {
+        $tv_servers_template = $category['Entries'][0]['Seasons'][0]['Episodes'][0]['Servers'];
+    }
+}
+// --- End pre-loading ---
+
+$tmdb_import_data = null; // Variable to hold TMDB data for JS
+
 if (isset($_GET['id']) && is_numeric($_GET['id'])) { // Edit Mode
     $is_edit_mode = true;
     $page_title = 'Edit Content';
@@ -68,15 +84,21 @@ if (isset($_GET['id']) && is_numeric($_GET['id'])) { // Edit Mode
 
     if ($type === 'movie') {
         $tmdb_data = $tmdb->get_movie_details($tmdb_id);
-        $cat_res = $conn->query("SELECT id FROM categories WHERE name = 'Movies' LIMIT 1");
-        $content['category_id'] = $cat_res->fetch_assoc()['id'];
+        if ($tmdb_data) {
+            $cat_res = $conn->query("SELECT id FROM categories WHERE name = 'Movies' LIMIT 1");
+            $content['category_id'] = $cat_res->fetch_assoc()['id'];
+            $content['servers'] = $movie_servers_template; // Pre-fill servers
+            $tmdb_import_data = $tmdb_data;
+        }
     } else { // 'tv'
         $tmdb_data = $tmdb->get_tv_show_details($tmdb_id);
-        $cat_res = $conn->query("SELECT id FROM categories WHERE name = 'TV Series' LIMIT 1");
-        $content['category_id'] = $cat_res->fetch_assoc()['id'];
-        // Note: Populating seasons/episodes would require significant JS and form name changes
-        // For now, we just import the main show data.
-        $content['seasons'] = $tmdb_data['seasons'] ?? [];
+        if ($tmdb_data) {
+            $cat_res = $conn->query("SELECT id FROM categories WHERE name = 'TV Series' LIMIT 1");
+            $content['category_id'] = $cat_res->fetch_assoc()['id'];
+            // We don't pre-fill the form here, the JS will do it.
+            // But we pass the data to the JS.
+            $tmdb_import_data = $tmdb_data;
+        }
     }
 
     // Merge TMDB data into our content array
@@ -86,6 +108,8 @@ if (isset($_GET['id']) && is_numeric($_GET['id'])) { // Edit Mode
         $content['poster'] = $tmdb_data['poster'];
         $content['year'] = $tmdb_data['year'];
         $content['rating'] = $tmdb_data['rating'];
+        // Note: seasons are not put into the $content array directly anymore for import
+        // JS will handle the dynamic creation
     }
 }
 
@@ -244,6 +268,13 @@ if (isset($_GET['id']) && is_numeric($_GET['id'])) { // Edit Mode
     </div>
 </div>
 <script>
+// Pass PHP data to JS
+const tmdbImportData = <?= json_encode($tmdb_import_data) ?>;
+const serverTemplates = {
+    movie: <?= json_encode($movie_servers_template) ?>,
+    tv: <?= json_encode($tv_servers_template) ?>
+};
+
 document.addEventListener('DOMContentLoaded', function() {
     const categorySelect = document.getElementById('category_id');
     const tvSeriesFields = document.getElementById('tv-series-fields');
@@ -342,6 +373,82 @@ document.addEventListener('DOMContentLoaded', function() {
             serverContainer.insertAdjacentHTML('beforeend', serverHtml);
         }
     });
+
+    // --- TMDB Import Population ---
+    function populateTvShowForm(showData) {
+        if (!showData || !showData.seasons) return;
+        seasonsContainer.innerHTML = ''; // Clear existing
+        let seasonIndex = 0;
+        showData.seasons.forEach(season => {
+            const seasonId = `season-${seasonIndex}`;
+            const seasonHtml = `
+                <div class="season-block" id="${seasonId}">
+                    <h4>Season ${season.season_number}
+                        <button type="button" class="btn-remove" onclick="document.getElementById('${seasonId}').remove()">X</button>
+                    </h4>
+                    <input type="hidden" name="seasons[${seasonIndex}][season_number]" value="${season.season_number}">
+                    <input type="hidden" name="seasons[${seasonIndex}][poster]" value="${season.poster || ''}">
+                    <div class="episodes-container"></div>
+                </div>`;
+            seasonsContainer.insertAdjacentHTML('beforeend', seasonHtml);
+            const episodesContainer = seasonsContainer.querySelector(`#${seasonId} .episodes-container`);
+            populateEpisodesForSeason(episodesContainer, seasonIndex, season.episodes);
+            seasonIndex++;
+        });
+        seasonCounter = seasonIndex; // Update global counter
+    }
+
+    function populateEpisodesForSeason(container, seasonIndex, episodes) {
+        let episodeIndex = 0;
+        episodes.forEach(episode => {
+            const episodeId = `s${seasonIndex}-ep${episodeIndex}`;
+            const episodeHtml = `
+                <div class="episode-block" id="${episodeId}">
+                    <h5>Ep ${episode.episode_number}: ${episode.title}
+                        <button type="button" class="btn-remove" onclick="document.getElementById('${episodeId}').remove()">X</button>
+                    </h5>
+                    <input type="hidden" name="seasons[${seasonIndex}][episodes][${episodeIndex}][episode_number]" value="${episode.episode_number}">
+                    <input type="hidden" name="seasons[${seasonIndex}][episodes][${episodeIndex}][title]" value="${episode.title}">
+                    <input type="hidden" name="seasons[${seasonIndex}][episodes][${episodeIndex}][description]" value="${episode.description || ''}">
+                    <input type="hidden" name="seasons[${seasonIndex}][episodes][${episodeIndex}][thumbnail]" value="${episode.thumbnail || ''}">
+                    <div class="servers-container-episode">
+                        <h6>Servers for this episode</h6>
+                        ${generateServerInputs(`seasons[${seasonIndex}][episodes][${episodeIndex}][servers]`, serverTemplates.tv, `s${seasonIndex}-ep${episodeIndex}-sv`)}
+                    </div>
+                </div>`;
+            container.insertAdjacentHTML('beforeend', episodeHtml);
+            episodeIndex++;
+        });
+    }
+
+    function generateServerInputs(namePrefix, servers, idPrefix) {
+        let html = '';
+        let serverIndex = 0;
+        servers.forEach(server => {
+            const serverId = `${idPrefix}-${serverIndex}`;
+            const isDrmChecked = server.drm || server.is_drm ? 'checked' : '';
+            html += `
+                <div class="server-item" id="${serverId}">
+                    <h6>Server <button type="button" class="btn-remove" onclick="document.getElementById('${serverId}').remove()">X</button></h6>
+                    <div class="form-group">
+                        <label>Name</label><input type="text" name="${namePrefix}[${serverIndex}][name]" value="${server.name || ''}">
+                        <label>URL</label><input type="url" name="${namePrefix}[${serverIndex}][url]" value="${server.url || ''}">
+                        <label>License URL</label><input type="text" name="${namePrefix}[${serverIndex}][license_url]" value="${server.license || server.license_url || ''}">
+                        <label><input type="checkbox" name="${namePrefix}[${serverIndex}][is_drm]" value="1" ${isDrmChecked}> Is DRM?</label>
+                    </div>
+                </div>`;
+            serverIndex++;
+        });
+        return html;
+    }
+
+    if (tmdbImportData) {
+        const selectedCategoryText = categorySelect.options[categorySelect.selectedIndex].text.trim();
+        if (selectedCategoryText === 'TV Series') {
+            populateTvShowForm(tmdbImportData);
+        }
+        toggleFields(); // Ensure correct section is shown after population
+    }
 });
 </script>
 </body>
